@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type AccountView, type Game, type Level, type Locale, type Round } from "@/shared/domain";
+import { initialProgress, learn, type Progress } from "@/shared/adaptive";
 import { Account } from "./account";
 import { copy, gameCopy } from "./copy";
 import { ActivityArt, Exercise, type Score } from "./games";
-import { api } from "./http";
+import { api, RequestError } from "./http";
 import { Icon } from "./icons";
 
 type View = "home" | "activities" | "account" | "game" | "complete";
@@ -41,13 +42,16 @@ export function App({ preview }: { preview: boolean }) {
   const items: readonly Game[] = ["MATCH", "FOCUS", "ROUTINE", "PATTERN"];
   const [online, setOnline] = useState(true);
   const [account, setAccount] = useState<AccountView | null>(null);
+  const [saveState, setSaveState] = useState<keyof typeof copy.en | null>(null);
   const [notice, setNotice] = useState<keyof typeof copy.en | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [date, setDate] = useState<Date | null>(null);
-  const [completed, setCompleted] = useState<{ round: Round } | null>(null);
+  const [completed, setCompleted] = useState<{ round: Round; key: string } | null>(null);
+  const [localProgress, setLocalProgress] = useState<Partial<Record<Game, Progress>>>({});
   const main = useRef<HTMLElement>(null);
   const initialized = useRef(false);
   const owner = useRef<string | null>(null);
+  const activeRound = useRef<string | null>(null);
   const ready = account?.state === "ready" ? account : null;
 
   function navigate(destination: View) {
@@ -62,6 +66,8 @@ export function App({ preview }: { preview: boolean }) {
   function choose(game: Game) {
     setGame(game);
     setRoundNo((value) => value + 1);
+    activeRound.current = null;
+    setSaveState(null);
     setCompleted(null);
     navigate("game");
   }
@@ -142,16 +148,42 @@ export function App({ preview }: { preview: boolean }) {
     await api("/api/auth/sign-out", {});
     owner.current = null;
     setAccount(null);
+    activeRound.current = null;
+    setLocalProgress({});
     setCompleted(null);
     await refresh().catch(() => undefined);
     navigate("home");
     setNotice("signedOut");
   }
 
+  async function save(round: Round, key: string) {
+    const current = owner.current;
+    const updateStatus = (state: keyof typeof copy.en) => {
+      if (activeRound.current === key) setSaveState(state);
+    };
+    if (!current) { updateStatus("noSave"); return; }
+    updateStatus("saving");
+    try {
+      if (!navigator.onLine) throw new TypeError("Offline");
+      const result = await api<{ difficulty: Level }>("/api/rounds", { data: round, key, owner: current });
+      if (owner.current !== current) return;
+      setAccount((value) => value?.state === "ready" && value.id === current
+        ? { ...value, levels: { ...value.levels, [round.game]: result.difficulty } } : value);
+      updateStatus("saved");
+    } catch (error) {
+      if (owner.current !== current) return;
+      updateStatus(error instanceof RequestError && [401, 403].includes(error.status) ? "connect" : "saveAgain");
+    }
+  }
+
   function complete(score: Score, difficulty: Level) {
     const round: Round = { ...score, difficulty, game, playedAt: new Date().toISOString() };
-    setCompleted({ round });
+    const key = crypto.randomUUID();
+    activeRound.current = key;
+    setLocalProgress((value) => ({ ...value, [game]: learn(value[game] ?? { ...initialProgress, difficulty }, round) }));
+    setCompleted({ round, key });
     navigate("complete");
+    void save(round, key);
   }
 
   const today = date && new Intl.DateTimeFormat(locale, { weekday: "long", month: "long", day: "numeric" }).format(date);
@@ -232,12 +264,15 @@ export function App({ preview }: { preview: boolean }) {
           <ActivityList locale={locale} items={items} choose={choose} />
         </section>}
         {view === "game" && <Exercise key={roundNo} game={game} locale={locale} read={speak} finish={complete} back={() => navigate("activities")}
-          startingLevel={1} />}
+          startingLevel={ready?.levels[game] ?? localProgress[game]?.difficulty ?? 1} />}
         {view === "complete" && completed && <section className="workbench completion">
           <ActivityArt game={game} />
           <h1 tabIndex={-1}>{t.wellDone}</h1>
           <p className="view-intro">{t.giveTime}</p>
           <p><strong>{gameName}</strong> · {t.roundScore} {completed.round.correct} / {completed.round.attempts}</p>
+          <p className="status" role="status">{saveState ? t[saveState] : ""}</p>
+          {saveState === "saveAgain" && <button className="button quiet" onClick={() => save(completed.round, completed.key)}>{t.saveAgain}</button>}
+          {saveState === "connect" && <button className="button quiet" onClick={() => navigate("account")}>{t.signIn}</button>}
           <div className="actions"><button className="button primary" onClick={() => choose(game)}>{t.again}</button>
             <button className="button quiet" onClick={() => navigate("activities")}>{t.viewActivities}</button>
             <button className="button quiet" onClick={() => navigate("home")}>{t.stopHere}</button></div>
