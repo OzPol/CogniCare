@@ -36,7 +36,7 @@ export function App({ preview }: { preview: boolean }) {
   const [view, setView] = useState<View>("home");
   const [game, setGame] = useState<Game>("MATCH");
   const [roundNo, setRoundNo] = useState(0);
-  const items: readonly Game[] = ["MATCH", "FOCUS", "ROUTINE"];
+  const items: readonly Game[] = ["MATCH", "FOCUS", "ROUTINE", "PATTERN"];
   const [online, setOnline] = useState(true);
   const [notice, setNotice] = useState<keyof typeof copy.en | null>(null);
   const [speaking, setSpeaking] = useState(false);

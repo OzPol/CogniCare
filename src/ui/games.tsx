@@ -144,10 +144,12 @@ function questions(game: Exclude<Game, "MATCH">, level: Level, locale: Locale): 
     return { kind: "routine", title, answer: steps[prefix], sample: steps.slice(0, prefix),
       options: shuffle([steps[prefix], ...shuffle(steps.filter((_, pos) => pos !== prefix)).slice(0, level < 3 ? 2 : 3)]) };
   });
+  const patterns = [[0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1], [0, 1, 2, 0, 1, 2], [0, 1, 1, 2, 0, 1, 1, 2]];
   return Array.from({ length: 3 + level }, () => {
     const order = shuffle(symbols);
-    const answer = order[0];
-    return { kind: "pictures", sample: [answer], answer,
+    const sequence = game === "FOCUS" ? [order[0]] : patterns[level - 1].map((index) => order[index]);
+    const answer = sequence.at(-1) ?? order[0];
+    return { kind: "pictures", sample: game === "FOCUS" ? sequence : sequence.slice(0, -1), answer,
       options: shuffle([answer, ...order.filter((symbol) => symbol !== answer).slice(0, level + 1)]) };
   });
 }
@@ -182,11 +184,14 @@ function ChoiceRound({ game, level, locale, finish, read }: PlayProps & {
       <h2 ref={prompt} tabIndex={-1} className="question-title">
         {current.kind === "routine"
           ? current.title
-          : (locale === "en" ? "Find this picture" : "Busca esta imagen")}
+          : game === "FOCUS"
+            ? (locale === "en" ? "Find this picture" : "Busca esta imagen")
+            : t.sequence}
       </h2>
       {current.kind === "pictures"
         ? <div className="sample-row">
           {current.sample.map((symbol, pos) => <div key={pos} className="sample-chip"><Mark symbol={symbol} /><span>{names[locale][symbol]}</span></div>)}
+          {game === "PATTERN" && <span className="sample-chip sample-missing" aria-hidden="true">?</span>}
         </div>
         : current.sample.length > 0
           ? <ol className="routine-sequence">{current.sample.map((step) => <li key={step}>{step}</li>)}</ol>
