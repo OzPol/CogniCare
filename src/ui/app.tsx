@@ -4,18 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type AccountView, type Game, type Level, type Locale, type Round } from "@/shared/domain";
 import { initialProgress, learn, type Progress } from "@/shared/adaptive";
 import { Account } from "./account";
+import { Care } from "./care";
 import { copy, gameCopy } from "./copy";
 import { ActivityArt, Exercise, type Score } from "./games";
 import { api, RequestError } from "./http";
 import { Icon } from "./icons";
 import { Reminders } from "./reminders";
 
-type View = "home" | "activities" | "today" | "account" | "game" | "complete";
+type View = "home" | "activities" | "today" | "care" | "account" | "game" | "complete";
 type MainView = Extract<View, "home" | "activities" | "today" | "care">;
 const navigation: { view: MainView; icon: string }[] = [
   { view: "home", icon: "home" },
   { view: "activities", icon: "games" },
   { view: "today", icon: "today" },
+  { view: "care", icon: "care" },
 ];
 const voices = { en: "en-US", es: "es-US" };
 
@@ -212,6 +214,7 @@ export function App({ preview }: { preview: boolean }) {
     view === "game" ? gameCopy[locale][game].instructions :
     view === "complete" ? t.wellDone + " " + t.giveTime :
     view === "today" ? t.todayTitle + ". " + t.todayIntro :
+    view === "care" ? t.careTitle :
     t.myAccount;
 
   return (
@@ -299,6 +302,7 @@ export function App({ preview }: { preview: boolean }) {
             <button className="button quiet" onClick={() => navigate("home")}>{t.stopHere}</button></div>
         </section>}
         {view === "today" && <Reminders key={ready?.id ?? "guest"} locale={locale} ready={!!ready} online={online} signIn={() => navigate("account")} />}
+        {view === "care" && <Care key={ready?.id ?? "guest"} locale={locale} current={ready} online={online} signIn={() => navigate("account")} />}
         {view === "account" && <Account account={account} locale={locale} online={online} refresh={refresh} signOut={signOut} close={() => navigate("home")} />}
 
         <footer className="footer">
