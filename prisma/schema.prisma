@@ -1,0 +1,250 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  PLAYER
+  CAREGIVER
+  HEALTH_WORKER
+}
+
+enum Game {
+  MATCH
+  FOCUS
+  ROUTINE
+  PATTERN
+}
+
+enum ReminderKind {
+  MEDICINE
+  WATER
+  ACTIVITY
+  APPOINTMENT
+}
+
+enum JobState {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
+model User {
+  id                 String         @id @default(uuid()) @db.Text
+  name               String
+  email              String         @unique
+  emailVerified      Boolean        @default(false)
+  image              String?
+  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
+  role               Role           @default(PLAYER)
+  sessions           Session[]
+  accounts           Account[]
+  authenticator      Authenticator?
+  reminders          Reminder[]
+  results            ActivityResult[]
+  progress           PlayerProgress[]
+  dailyActivity      DailyActivity[]
+  invitations        CareInvitation[]
+  careTeam           CareLink[]     @relation("Patient")
+  careRecipients     CareLink[]     @relation("Caregiver")
+  jobs               PracticeJob[]
+}
+
+model Session {
+  id         String    @id
+  expiresAt  DateTime  @db.Timestamptz(3)
+  token      String    @unique
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
+  ipAddress  String?
+  userAgent  String?
+  userId     String
+  assuredAt  DateTime? @db.Timestamptz(3)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([identifier])
+}
+
+model Authenticator {
+  userId       String        @id
+  secret       String
+  boundSession String?
+  enrolledAt   DateTime?     @db.Timestamptz(3)
+  pendingUntil DateTime     @db.Timestamptz(3)
+  lastStep     BigInt       @default(-1)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recovery     RecoveryCode[]
+}
+
+model RecoveryCode {
+  userId String
+  digest String
+  usedAt DateTime? @db.Timestamptz(3)
+  owner  Authenticator @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([userId, digest])
+}
+
+model Exercise {
+  game    Game    @id
+  order   Int     @unique
+  enabled Boolean @default(true)
+}
+
+model PlayerProgress {
+  playerId   String
+  game       Game
+  skill      Float     @default(0.85)
+  difficulty Int       @default(1)
+  rounds     Int       @default(0)
+  lastRound  DateTime? @db.Timestamptz(3)
+  player     User      @relation(fields: [playerId], references: [id], onDelete: Restrict)
+
+  @@id([playerId, game])
+}
+
+model ActivityResult {
+  id         String   @id @default(uuid()) @db.Uuid
+  playerId   String
+  game       Game
+  difficulty Int
+  correct    Int
+  attempts   Int
+  playedAt   DateTime @db.Timestamptz(3)
+  savedAt    DateTime @default(now()) @db.Timestamptz(3)
+  player     User     @relation(fields: [playerId], references: [id], onDelete: Restrict)
+
+  @@index([playerId, playedAt(sort: Desc), id(sort: Desc)])
+}
+
+model DailyActivity {
+  playerId String
+  day      DateTime @db.Date
+  game     Game
+  rounds   Int      @default(0)
+  correct  Int      @default(0)
+  attempts Int      @default(0)
+  player   User     @relation(fields: [playerId], references: [id], onDelete: Restrict)
+
+  @@id([playerId, day, game])
+}
+
+model Reminder {
+  id          String       @id @default(uuid()) @db.Uuid
+  playerId    String
+  title       String
+  kind        ReminderKind
+  dueAt       DateTime     @db.Timestamptz(3)
+  version     Int          @default(1)
+  doneAt      DateTime?    @db.Timestamptz(3)
+  deletedAt   DateTime?    @db.Timestamptz(3)
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  player      User         @relation(fields: [playerId], references: [id], onDelete: Restrict)
+
+  @@index([playerId, dueAt, id])
+}
+
+model CareInvitation {
+  id         String    @id @default(uuid()) @db.Uuid
+  patientId  String
+  digest     String    @unique
+  expiresAt  DateTime  @db.Timestamptz(3)
+  consumedAt DateTime? @db.Timestamptz(3)
+  patient    User      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@index([patientId, expiresAt])
+}
+
+model CareLink {
+  patientId   String
+  caregiverId String
+  grantedAt   DateTime  @db.Timestamptz(3)
+  revokedAt   DateTime? @db.Timestamptz(3)
+  patient     User      @relation("Patient", fields: [patientId], references: [id], onDelete: Restrict)
+  caregiver   User      @relation("Caregiver", fields: [caregiverId], references: [id], onDelete: Restrict)
+
+  @@id([patientId, caregiverId])
+  @@index([caregiverId, revokedAt, grantedAt])
+}
+
+model IdempotencyReceipt {
+  actorId     String
+  operation   String
+  key         String   @db.Uuid
+  fingerprint String
+  status      Int?
+  response    Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([actorId, operation, key])
+  @@index([createdAt])
+}
+
+model AuditEvent {
+  id            BigInt   @id @default(autoincrement())
+  actorId       String
+  action        String
+  entityId      String
+  before        Json?
+  after         Json?
+  occurredAt    DateTime @default(now()) @db.Timestamptz(3)
+  correlationId String   @db.Uuid
+
+  @@index([entityId, occurredAt, id])
+  @@index([actorId, occurredAt, id])
+}
+
+model PracticeJob {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerId     String
+  template    String
+  state       JobState @default(QUEUED)
+  result      Json?
+  attempts    Int      @default(0)
+  lease       String?  @db.Uuid
+  availableAt DateTime @default(now()) @db.Timestamptz(3)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+
+  @@index([state, availableAt, id])
+  @@index([ownerId, createdAt])
+}

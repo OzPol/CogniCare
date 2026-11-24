@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: cognicare_owner
+      POSTGRES_PASSWORD: cognicare_local_owner
+      POSTGRES_DB: cognicare
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U cognicare_owner -d cognicare"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - cognicare-db:/var/lib/postgresql/data
+      - ./ops/local-role.sql:/docker-entrypoint-initdb.d/01-local-role.sql:ro
+      - ./ops/runtime-grants.sql:/tmp/runtime-grants.sql:ro
+  pooler:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    environment:
+      DATABASE_URL: postgres://cognicare_app:cognicare_local_app@postgres:5432/cognicare
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: 16
+      MAX_CLIENT_CONN: 300
+      MAX_PREPARED_STATEMENTS: 100
+    ports:
+      - "127.0.0.1:6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  valkey:
+    image: valkey/valkey:8.1-alpine
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - cognicare-valkey:/data
+
+volumes:
+  cognicare-db:
+  cognicare-valkey:
