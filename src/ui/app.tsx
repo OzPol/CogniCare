@@ -8,12 +8,14 @@ import { copy, gameCopy } from "./copy";
 import { ActivityArt, Exercise, type Score } from "./games";
 import { api, RequestError } from "./http";
 import { Icon } from "./icons";
+import { Reminders } from "./reminders";
 
-type View = "home" | "activities" | "account" | "game" | "complete";
+type View = "home" | "activities" | "today" | "account" | "game" | "complete";
 type MainView = Extract<View, "home" | "activities" | "today" | "care">;
 const navigation: { view: MainView; icon: string }[] = [
   { view: "home", icon: "home" },
   { view: "activities", icon: "games" },
+  { view: "today", icon: "today" },
 ];
 const voices = { en: "en-US", es: "es-US" };
 
@@ -41,6 +43,7 @@ export function App({ preview }: { preview: boolean }) {
   const [roundNo, setRoundNo] = useState(0);
   const items: readonly Game[] = ["MATCH", "FOCUS", "ROUTINE", "PATTERN"];
   const [online, setOnline] = useState(true);
+  const [dueOwner, setDueOwner] = useState<string | null>(null);
   const [account, setAccount] = useState<AccountView | null>(null);
   const [saveState, setSaveState] = useState<keyof typeof copy.en | null>(null);
   const [notice, setNotice] = useState<keyof typeof copy.en | null>(null);
@@ -125,6 +128,20 @@ export function App({ preview }: { preview: boolean }) {
     return () => controller.abort();
   }, [online, refresh]);
 
+  useEffect(() => {
+    if (!ready || !online || view === "today") return;
+    const controller = new AbortController();
+    const id = ready.id;
+    function check() {
+      api<{ due: boolean }>("/api/reminders?due=1", undefined, controller.signal)
+        .then(({ due }) => { if (!controller.signal.aborted) setDueOwner(due ? id : null); })
+        .catch(() => undefined);
+    }
+    check();
+    const interval = setInterval(check, 60_000);
+    return () => { controller.abort(); clearInterval(interval); };
+  }, [ready, online, view]);
+
   function speak(content: string) {
     if (!("speechSynthesis" in window)) { setNotice("voiceMissing"); return; }
     const synthesis = window.speechSynthesis;
@@ -194,6 +211,7 @@ export function App({ preview }: { preview: boolean }) {
     view === "activities" ? t.activities + ". " + items.map((item) => gameCopy[locale][item].title).join(". ") :
     view === "game" ? gameCopy[locale][game].instructions :
     view === "complete" ? t.wellDone + " " + t.giveTime :
+    view === "today" ? t.todayTitle + ". " + t.todayIntro :
     t.myAccount;
 
   return (
@@ -232,6 +250,8 @@ export function App({ preview }: { preview: boolean }) {
         <div className="notices" aria-live="polite">
           {!online && <p>{t.offline}</p>}
           {notice && <p>{t[notice]}</p>}
+          {online && ready && ready.id === dueOwner && view === "home" &&
+            <div className="due-notice"><p>{t.reminderDue}</p><button className="button quiet" onClick={() => navigate("today")}>{t.seeToday}</button></div>}
         </div>
         {view === "home" && <>
           <section className="hero" aria-labelledby="hero-title">
@@ -254,6 +274,7 @@ export function App({ preview }: { preview: boolean }) {
           <section className="home-activities" aria-labelledby="home-activities">
             <div className="section-heading">
               <h2 id="home-activities">{t.activities}</h2>
+              <button className="button quiet today-link" onClick={() => navigate("today")}><Icon name="today" />{t.seeToday}<Icon name="arrow" size={18} /></button>
             </div>
             <ActivityList locale={locale} items={items} choose={choose} />
           </section>
@@ -277,6 +298,7 @@ export function App({ preview }: { preview: boolean }) {
             <button className="button quiet" onClick={() => navigate("activities")}>{t.viewActivities}</button>
             <button className="button quiet" onClick={() => navigate("home")}>{t.stopHere}</button></div>
         </section>}
+        {view === "today" && <Reminders key={ready?.id ?? "guest"} locale={locale} ready={!!ready} online={online} signIn={() => navigate("account")} />}
         {view === "account" && <Account account={account} locale={locale} online={online} refresh={refresh} signOut={signOut} close={() => navigate("home")} />}
 
         <footer className="footer">
