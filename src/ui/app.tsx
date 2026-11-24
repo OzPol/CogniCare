@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type AccountView, type Game, type Level, type Locale, type Round } from "@/shared/domain";
+import { games, type AccountView, type Game, type Level, type Locale, type Round } from "@/shared/domain";
 import { initialProgress, learn, type Progress } from "@/shared/adaptive";
 import { Account } from "./account";
 import { Care } from "./care";
@@ -15,10 +15,8 @@ import { Reminders } from "./reminders";
 type View = "home" | "activities" | "today" | "care" | "account" | "game" | "complete";
 type MainView = Extract<View, "home" | "activities" | "today" | "care">;
 const navigation: { view: MainView; icon: string }[] = [
-  { view: "home", icon: "home" },
-  { view: "activities", icon: "games" },
-  { view: "today", icon: "today" },
-  { view: "care", icon: "care" },
+  { view: "home", icon: "home" }, { view: "activities", icon: "games" },
+  { view: "today", icon: "today" }, { view: "care", icon: "care" },
 ];
 const voices = { en: "en-US", es: "es-US" };
 
@@ -44,7 +42,7 @@ export function App({ preview }: { preview: boolean }) {
   const [view, setView] = useState<View>("home");
   const [game, setGame] = useState<Game>("MATCH");
   const [roundNo, setRoundNo] = useState(0);
-  const items: readonly Game[] = ["MATCH", "FOCUS", "ROUTINE", "PATTERN"];
+  const [items, setItems] = useState<readonly Game[]>(games);
   const [online, setOnline] = useState(true);
   const [dueOwner, setDueOwner] = useState<string | null>(null);
   const [deviceQueue, setDeviceQueue] = useState(false);
@@ -134,6 +132,7 @@ export function App({ preview }: { preview: boolean }) {
     if (!online) return;
     const controller = new AbortController();
     void Promise.resolve().then(() => refresh(controller.signal)).catch(() => undefined);
+    api<{ games: Game[] }>("/api/catalog", undefined, controller.signal).then(({ games }) => setItems(games)).catch(() => undefined);
     return () => controller.abort();
   }, [online, refresh]);
 
@@ -249,14 +248,10 @@ export function App({ preview }: { preview: boolean }) {
   const today = date && new Intl.DateTimeFormat(locale, { weekday: "long", month: "long", day: "numeric" }).format(date);
   const activeNav = view === "game" || view === "complete" ? "activities" : view;
   const gameName = gameCopy[locale][game].title;
-
-  const speechText = view === "home" ? t.pageTitle + " " + t.welcome :
-    view === "activities" ? t.activities + ". " + items.map((item) => gameCopy[locale][item].title).join(". ") :
-    view === "game" ? gameCopy[locale][game].instructions :
-    view === "complete" ? t.wellDone + " " + t.giveTime :
-    view === "today" ? t.todayTitle + ". " + t.todayIntro :
-    view === "care" ? t.careTitle :
-    t.myAccount;
+  const speechText = view === "home" ? t.pageTitle + " " + t.welcome
+    : view === "activities" ? t.activities + ". " + items.map((item) => gameCopy[locale][item].title).join(". ")
+      : view === "game" ? gameCopy[locale][game].instructions : view === "today" ? t.todayTitle + ". " + t.todayIntro
+        : view === "complete" ? t.wellDone + " " + t.giveTime : view === "care" ? t.careTitle : t.myAccount;
 
   return (
     <>
