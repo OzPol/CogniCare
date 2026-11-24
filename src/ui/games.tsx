@@ -113,6 +113,84 @@ function Memory({ level, locale, finish }: PlayProps) {
   );
 }
 
+type Question =
+  | { kind: "pictures"; sample: Symbol[]; options: Symbol[]; answer: Symbol }
+  | { kind: "routine"; title: string; sample: string[]; options: string[]; answer: string };
+
+function questions(level: Level): Question[] {
+  return Array.from({ length: 3 + level }, () => {
+    const order = shuffle(symbols);
+    const answer = order[0];
+    return { kind: "pictures", sample: [answer], answer,
+      options: shuffle([answer, ...order.filter((symbol) => symbol !== answer).slice(0, level + 1)]) };
+  });
+}
+
+function ChoiceRound({ game, level, locale, finish, read }: PlayProps & {
+  game: Exclude<Game, "MATCH">; read: (text: string) => void;
+}) {
+  const t = copy[locale];
+  const [items] = useState(() => questions(level));
+  const [index, setIndex] = useState(0);
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [correct, setCorrect] = useState(0);
+  const prompt = useRef<HTMLHeadingElement>(null);
+  const nextButton = useRef<HTMLButtonElement>(null);
+  const current = items[index];
+  const label = (item: string) => current.kind === "routine" ? item : names[locale][item as Symbol];
+
+  function choose(value: string) {
+    if (answer !== null) return;
+    setAnswer(value);
+    if (value === current.answer) setCorrect((count) => count + 1);
+    requestAnimationFrame(() => nextButton.current?.focus());
+  }
+
+  return (
+    <>
+      <div className="game-tools"><p className="counter">{index + 1} / {items.length}</p><button className="button quiet" onClick={() => {
+        const context = current.kind === "routine" ? current.title + ". " : "";
+        read(context + gameCopy[locale][game].instructions + " " + current.sample.map(label).join(", ") +
+          ". " + t.pick + " " + current.options.map(label).join(", ") + ".");
+      }}>{t.showQuestion}</button></div>
+      <h2 ref={prompt} tabIndex={-1} className="question-title">
+        {current.kind === "routine"
+          ? current.title
+          : (locale === "en" ? "Find this picture" : "Busca esta imagen")}
+      </h2>
+      {current.kind === "pictures"
+        ? <div className="sample-row">
+          {current.sample.map((symbol, pos) => <div key={pos} className="sample-chip"><Mark symbol={symbol} /><span>{names[locale][symbol]}</span></div>)}
+        </div>
+        : current.sample.length > 0
+          ? <ol className="routine-sequence">{current.sample.map((step) => <li key={step}>{step}</li>)}</ol>
+          : <p>{locale === "en" ? "What comes first?" : "¿Qué va primero?"}</p>}
+      <p className="option-label">{t.pick}</p>
+      <div className={current.kind === "routine" ? "choice-list words" : "choice-list"}>
+        {current.options.map((value) => (
+          <button
+            key={value} className={"choice" + (answer === value ? " chosen" : "")}
+            aria-pressed={answer === value} aria-disabled={answer !== null} onClick={() => choose(value)}
+          >
+            {current.kind === "pictures" && <Mark symbol={value as Symbol} />}<span>{label(value)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="feedback">
+        <p role="status">{answer === null ? "" : answer === current.answer ? t.yes : t.answerWas + " " + label(current.answer) + "."}</p>
+        {answer !== null && <button ref={nextButton} className="button primary" onClick={() => {
+          if (index === items.length - 1) finish({ correct, attempts: items.length });
+          else {
+            setIndex(index + 1);
+            setAnswer(null);
+            requestAnimationFrame(() => prompt.current?.focus());
+          }
+        }}>{index === items.length - 1 ? t.exit : t.next}<span aria-hidden="true"> →</span></button>}
+      </div>
+    </>
+  );
+}
+
 export function Exercise({
   game, locale, startingLevel, finish, back, read,
 }: { game: Game; locale: Locale; startingLevel: Level; finish: (score: Score, level: Level) => void;
@@ -142,8 +220,10 @@ export function Exercise({
             <button className="button quiet" onClick={() => read(text.instructions)}>{t.read}</button>
           </div>
         </div>
-      ) : (
+      ) : game === "MATCH" ? (
         <Memory level={level} locale={locale} finish={(score) => finish(score, level)} />
+      ) : (
+        <ChoiceRound key={locale} game={game} level={level} locale={locale} finish={(score) => finish(score, level)} read={read} />
       )}
     </section>
   );
