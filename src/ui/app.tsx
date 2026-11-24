@@ -9,6 +9,7 @@ import { copy, gameCopy } from "./copy";
 import { ActivityArt, Exercise, type Score } from "./games";
 import { api, RequestError } from "./http";
 import { Icon } from "./icons";
+import { enqueueOffline, purgeOffline, syncOffline } from "./offline";
 import { Reminders } from "./reminders";
 
 type View = "home" | "activities" | "today" | "care" | "account" | "game" | "complete";
@@ -46,6 +47,7 @@ export function App({ preview }: { preview: boolean }) {
   const items: readonly Game[] = ["MATCH", "FOCUS", "ROUTINE", "PATTERN"];
   const [online, setOnline] = useState(true);
   const [dueOwner, setDueOwner] = useState<string | null>(null);
+  const [deviceQueue, setDeviceQueue] = useState(false);
   const [account, setAccount] = useState<AccountView | null>(null);
   const [saveState, setSaveState] = useState<keyof typeof copy.en | null>(null);
   const [notice, setNotice] = useState<keyof typeof copy.en | null>(null);
@@ -98,9 +100,14 @@ export function App({ preview }: { preview: boolean }) {
       try {
         if (localStorage.getItem("cognicare-language") === "es") setLocale("es");
         setLarger(localStorage.getItem("cognicare-large") === "yes");
+        setDeviceQueue(localStorage.getItem("cognicare-offline") === "yes");
       } catch { }
       initialized.current = true;
       setOnline(navigator.onLine);
+      void purgeOffline(null).catch(() => undefined);
+      if ("serviceWorker" in navigator && !window.location.pathname.startsWith("/api")) {
+        void navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+      }
     }, 0);
 
     const connection = () => setOnline(navigator.onLine);
@@ -129,6 +136,25 @@ export function App({ preview }: { preview: boolean }) {
     void Promise.resolve().then(() => refresh(controller.signal)).catch(() => undefined);
     return () => controller.abort();
   }, [online, refresh]);
+
+  useEffect(() => {
+    if (!ready || !online || !deviceQueue) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function flush() {
+      if (!ready || controller.signal.aborted) return;
+      try {
+        const count = await syncOffline(ready.id, controller.signal);
+        if (count && !controller.signal.aborted) {
+          setNotice("synced");
+          setSaveState((prior) => prior === "queued" ? "synced" : prior);
+        }
+      } catch { }
+      if (!controller.signal.aborted) timer = setTimeout(flush, 15_000);
+    }
+    void flush();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [ready, online, deviceQueue]);
 
   useEffect(() => {
     if (!ready || !online || view === "today") return;
@@ -163,7 +189,17 @@ export function App({ preview }: { preview: boolean }) {
     synthesis.speak(utterance);
   }
 
+  async function offlineToggle() {
+    if (deviceQueue) await purgeOffline(null, true);
+    else await purgeOffline(null);
+    localStorage.setItem("cognicare-offline", deviceQueue ? "no" : "yes");
+    setDeviceQueue(!deviceQueue);
+    setNotice(deviceQueue ? "offlineOff" : "offlineOn");
+  }
+
   async function signOut() {
+    const previous = owner.current;
+    if (previous) await purgeOffline(previous, true);
     await api("/api/auth/sign-out", {});
     owner.current = null;
     setAccount(null);
@@ -191,6 +227,11 @@ export function App({ preview }: { preview: boolean }) {
       updateStatus("saved");
     } catch (error) {
       if (owner.current !== current) return;
+      const retryable = error instanceof TypeError || (error instanceof RequestError && (error.status >= 500 || error.status === 429));
+      if (retryable && deviceQueue) {
+        try { await enqueueOffline(current, key, round); updateStatus("queued"); return; }
+        catch { }
+      }
       updateStatus(error instanceof RequestError && [401, 403].includes(error.status) ? "connect" : "saveAgain");
     }
   }
@@ -303,11 +344,13 @@ export function App({ preview }: { preview: boolean }) {
         </section>}
         {view === "today" && <Reminders key={ready?.id ?? "guest"} locale={locale} ready={!!ready} online={online} signIn={() => navigate("account")} />}
         {view === "care" && <Care key={ready?.id ?? "guest"} locale={locale} current={ready} online={online} signIn={() => navigate("account")} />}
-        {view === "account" && <Account account={account} locale={locale} online={online} refresh={refresh} signOut={signOut} close={() => navigate("home")} />}
+        {view === "account" && <Account account={account} locale={locale} online={online} refresh={refresh} signOut={signOut} offline={deviceQueue}
+          toggleOffline={offlineToggle} close={() => navigate("home")} />}
 
         <footer className="footer">
           <span className="footer-brand">CogniCare</span>
           {preview && <span>{t.preview}</span>}
+          <details><summary>{t.howToInstall}</summary><p>{t.installHelp}</p></details>
         </footer>
       </main>
     </>

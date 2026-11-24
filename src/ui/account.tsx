@@ -22,10 +22,10 @@ export function errorCopy(locale: Locale, error: unknown) {
 }
 
 export function Account({
-  account, locale, online, refresh, signOut, close,
+  account, locale, online, offline, toggleOffline, refresh, signOut, close,
 }: {
-  account: State; locale: Locale; online: boolean;
-  refresh: () => Promise<unknown>; signOut: () => Promise<void>; close: () => void;
+  account: State; locale: Locale; online: boolean; offline: boolean;
+  toggleOffline: () => Promise<void>; refresh: () => Promise<unknown>; signOut: () => Promise<void>; close: () => void;
 }) {
   const t = copy[locale];
   const [status, setStatus] = useState("");
@@ -62,6 +62,11 @@ export function Account({
       ) : !account ? <p>{online ? t.accountUnavailable : t.offline}</p>
         : account.state === "ready" ? (
           <div className="subpanel">
+            <h2>{t.enableOffline}</h2>
+            <p>{t.offlineHelp}</p>
+            <button className="button quiet" disabled={busy} aria-pressed={offline} onClick={() => run(toggleOffline)}>
+              {offline ? t.disableOffline : t.enableOffline}
+            </button>
             <button className="button primary" disabled={busy || !online} onClick={() => run(signOut)}>{t.signOut}</button>
           </div>
         ) : account.state === "enroll" || account.state === "verify" ? (

@@ -7,7 +7,9 @@ export const metadata: Metadata = {
   title: "CogniCare",
   description: "Gentle cognitive activities and everyday reminders.",
   applicationName: "CogniCare",
-  icons: { icon: "/icon-32.png" },
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/icon-32.png", apple: "/icon-180.png" },
+  appleWebApp: { capable: true, title: "CogniCare", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = { themeColor: "#f7f8f0", colorScheme: "light", viewportFit: "cover" };

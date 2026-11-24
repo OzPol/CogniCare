@@ -8,8 +8,8 @@
   },
   "scripts": {
     "postinstall": "prisma generate",
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "node --import tsx scripts/service-worker.ts && next dev",
+    "build": "node --import tsx scripts/service-worker.ts && next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
