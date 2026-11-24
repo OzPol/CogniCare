@@ -1,15 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { type AccountView, type CareSummary, type Locale, type Person } from "@/shared/domain";
+import { practiceInput, type AccountView, type CareSummary, type Game, type Locale, type Person, type PracticeView } from "@/shared/domain";
 import { errorCopy } from "./account";
 import { copy, gameCopy } from "./copy";
 import { api } from "./http";
 
 type Ready = Extract<AccountView, { state: "ready" }>;
 
-export function Care({ locale, current, online, signIn }: {
-  locale: Locale; current: Ready | null; online: boolean; signIn: () => void;
+export function Care({ locale, current, online, signIn, chooseGame }: {
+  locale: Locale; current: Ready | null; online: boolean; signIn: () => void; chooseGame: (game: Game) => void;
 }) {
   const t = copy[locale];
   const [people, setPeople] = useState<Person[]>([]);
@@ -19,6 +19,9 @@ export function Care({ locale, current, online, signIn }: {
   const [summary, setSummary] = useState<CareSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [allowPlans, setAllowPlans] = useState(false);
+  const [jobId, setJobId] = useState("");
+  const [plan, setPlan] = useState<PracticeView | null>(null);
   const isPlayer = current?.role === "PLAYER";
 
   const loadPeople = useCallback(async (signal?: AbortSignal) => {
@@ -36,6 +39,8 @@ export function Care({ locale, current, online, signIn }: {
     void Promise.resolve().then(() => loadPeople(controller.signal)).catch((error) => {
       if (!controller.signal.aborted) setNote(errorCopy(locale, error));
     });
+    if (!isPlayer) api<{ enabled: boolean }>("/api/practice", undefined, controller.signal)
+      .then(({ enabled }) => setAllowPlans(enabled)).catch(() => undefined);
     return () => controller.abort();
   }, [current, online, isPlayer, locale, loadPeople]);
 
@@ -47,6 +52,19 @@ export function Care({ locale, current, online, signIn }: {
     });
     return () => controller.abort();
   }, [person, current, isPlayer, locale, online, loadSummary]);
+
+  useEffect(() => {
+    if (!jobId || !online || !current || isPlayer) return;
+    const events = new EventSource("/api/practice/" + jobId + "?stream=1");
+    events.addEventListener("plan", (event: MessageEvent<string>) => {
+      const frame = JSON.parse(event.data) as PracticeView;
+      setPlan(frame);
+      setNote("");
+      if (frame.state === "DONE" || frame.state === "FAILED") events.close();
+    });
+    events.onerror = () => { events.close(); setNote(t.planLater); };
+    return () => events.close();
+  }, [jobId, online, current, isPlayer, t.planLater]);
 
   async function run(work: () => Promise<unknown>) {
     setBusy(true);
@@ -133,6 +151,30 @@ export function Care({ locale, current, online, signIn }: {
                 {new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(item.dueAt))}
               </time></li>)}</ul> : <p>{t.noAlerts}</p>}
           </section>}
+          {allowPlans && <div className="subpanel">
+            <h2>{t.plan}</h2><p>{t.planHelp}</p>
+            <form className="inline-form" onSubmit={(event) => {
+              event.preventDefault();
+              const input = new FormData(event.currentTarget).get("template");
+              run(async () => {
+                const result = await api<{ id: string }>("/api/practice", { data: { template: input } });
+                setPlan(null); setJobId(result.id);
+              });
+            }}>
+              <div><label htmlFor="plan-template">{locale === "en" ? "Style" : "Estilo"}</label>
+                <select id="plan-template" name="template">
+                  {practiceInput.shape.template.options.map((value) => <option key={value} value={value}>{t[value]}</option>)}
+                </select></div>
+              <button disabled={busy} className="button primary">{t.plan}</button>
+            </form>
+            {jobId && plan?.state !== "DONE" && plan?.state !== "FAILED" && <div className="actions">
+              <span role="status">{t.planLoading}</span><button className="button quiet" onClick={() => run(async () => {
+                setPlan(await api<PracticeView>("/api/practice/" + jobId));
+              })}>{t.refreshing}</button></div>}
+            {plan?.state === "FAILED" && <p role="status">{t.noPractice}</p>}
+            {plan?.result && <div><h3>{t.planFinished}</h3><div className="actions">{plan.result.games.map((game) =>
+              <button key={game} className="button quiet" onClick={() => chooseGame(game)}>{gameCopy[locale][game].title}</button>)}</div></div>}
+          </div>}
         </>}
       <p className="status" role="status">{note}</p>
     </section>

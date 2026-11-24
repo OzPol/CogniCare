@@ -338,7 +338,7 @@ export function App({ preview }: { preview: boolean }) {
             <button className="button quiet" onClick={() => navigate("home")}>{t.stopHere}</button></div>
         </section>}
         {view === "today" && <Reminders key={ready?.id ?? "guest"} locale={locale} ready={!!ready} online={online} signIn={() => navigate("account")} />}
-        {view === "care" && <Care key={ready?.id ?? "guest"} locale={locale} current={ready} online={online} signIn={() => navigate("account")} />}
+        {view === "care" && <Care key={ready?.id ?? "guest"} locale={locale} current={ready} online={online} signIn={() => navigate("account")} chooseGame={choose} />}
         {view === "account" && <Account account={account} locale={locale} online={online} refresh={refresh} signOut={signOut} offline={deviceQueue}
           toggleOffline={offlineToggle} close={() => navigate("home")} />}
 

@@ -17,6 +17,7 @@
     "db:status": "prisma migrate status",
     "db:seed": "node --import tsx scripts/seed-dev.ts",
     "care:role": "node --import tsx scripts/care-role.ts",
+    "worker": "node --import tsx scripts/worker.ts",
     "setup": "node --import tsx scripts/setup.ts"
   },
   "dependencies": {
