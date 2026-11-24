@@ -10,19 +10,23 @@ type MainView = Extract<View, "home" | "activities" | "today" | "care">;
 const navigation: { view: MainView; icon: string }[] = [
   { view: "home", icon: "home" },
 ];
+const voices = { en: "en-US", es: "es-US" };
 
 export function App({ preview }: { preview: boolean }) {
-  const locale: Locale = "en";
+  const [locale, setLocale] = useState<Locale>("en");
   const t = copy[locale];
   const [larger, setLarger] = useState(false);
   const [view, setView] = useState<View>("home");
   const [online, setOnline] = useState(true);
   const [notice, setNotice] = useState<keyof typeof copy.en | null>(null);
+  const [speaking, setSpeaking] = useState(false);
   const [date, setDate] = useState<Date | null>(null);
   const main = useRef<HTMLElement>(null);
   const initialized = useRef(false);
 
   function navigate(destination: View) {
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    setSpeaking(false);
     setNotice(null);
     setView(destination);
     window.scrollTo(0, 0);
@@ -33,6 +37,7 @@ export function App({ preview }: { preview: boolean }) {
     const init = window.setTimeout(() => {
       setDate(new Date());
       try {
+        if (localStorage.getItem("cognicare-language") === "es") setLocale("es");
         setLarger(localStorage.getItem("cognicare-large") === "yes");
       } catch { }
       initialized.current = true;
@@ -50,12 +55,38 @@ export function App({ preview }: { preview: boolean }) {
   }, []);
 
   useEffect(() => {
+    document.documentElement.lang = locale;
+    if (initialized.current) try { localStorage.setItem("cognicare-language", locale); } catch {}
+  }, [locale]);
+
+  useEffect(() => {
     document.documentElement.classList.toggle("large-print", larger);
     if (initialized.current) try { localStorage.setItem("cognicare-large", larger ? "yes" : "no"); } catch {}
   }, [larger]);
 
+  function speak(content: string) {
+    if (!("speechSynthesis" in window)) { setNotice("voiceMissing"); return; }
+    const synthesis = window.speechSynthesis;
+    if (speaking) { synthesis.cancel(); setSpeaking(false); return; }
+    const candidates = synthesis.getVoices().filter((voice) => voice.localService);
+    const voice = candidates.find((voice) => voice.lang === voices[locale]) ??
+      candidates.find((voice) => voice.lang.startsWith(locale));
+    if (!voice) { setNotice("voiceMissing"); return; }
+    const utterance = new SpeechSynthesisUtterance(content);
+    utterance.voice = voice;
+    utterance.lang = locale;
+    utterance.rate = 0.86;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setNotice(null);
+    setSpeaking(true);
+    synthesis.speak(utterance);
+  }
+
   const today = date && new Intl.DateTimeFormat(locale, { weekday: "long", month: "long", day: "numeric" }).format(date);
   const activeNav = view;
+
+  const speechText = t.pageTitle + " " + t.welcome;
 
   return (
     <>
@@ -75,6 +106,13 @@ export function App({ preview }: { preview: boolean }) {
           <div className="header-tools">
             <button className="text-switch" title={larger ? t.resetText : t.bigger} aria-label={larger ? t.resetText : t.bigger}
               aria-pressed={larger} onClick={() => setLarger(!larger)}>Aa</button>
+            <label className="sr-only" htmlFor="locale">{t.language}</label>
+            <select id="locale" className="locale" value={locale} onChange={(event) => {
+              if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+              setSpeaking(false); setLocale(event.target.value as Locale);
+            }}>
+              <option value="en" lang="en">English</option><option value="es" lang="es">Español</option>
+            </select>
           </div>
         </div>
       </header>
@@ -90,6 +128,9 @@ export function App({ preview }: { preview: boolean }) {
               {today && <p className="hero-date"><Icon name="today" size={18} /><time dateTime={date?.toISOString()}>{today}</time></p>}
               <h1 id="hero-title" tabIndex={-1}>{t.pageTitle}</h1>
               <p>{t.welcome}</p>
+              <div className="hero-actions">
+                <button className="button voice" onClick={() => speak(speechText)}><Icon name="audio" />{speaking ? t.stop : t.read}</button>
+              </div>
             </div>
             <div className="hero-picture">
               <picture>
