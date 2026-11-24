@@ -113,11 +113,37 @@ function Memory({ level, locale, finish }: PlayProps) {
   );
 }
 
+const routineScenes = {
+  en: [
+    ["Making tea", "Fill the kettle", "Heat the water", "Pour water into the cup", "Let the tea steep"],
+    ["Watering a plant", "Check the soil", "Fill the watering can", "Water the plant", "Put the can away"],
+    ["Taking a walk", "Put on walking shoes", "Step out of the house", "Walk down the path", "Come back home"],
+    ["Mailing a letter", "Write the letter", "Put it in an envelope", "Add the address and stamp", "Put it in the mailbox"],
+    ["Setting the table", "Wipe the table", "Put down the plates", "Add forks and spoons", "Bring the food"],
+    ["Preparing toast", "Take out a slice of bread", "Put it in the toaster", "Wait for the toast", "Put it on a plate"],
+    ["Packing a picnic", "Choose what to take", "Put the food in the basket", "Carry the basket outside", "Spread a blanket"],
+  ],
+  es: [
+    ["Preparar té", "Llenar la tetera", "Calentar el agua", "Verter el agua en la taza", "Dejar reposar el té"],
+    ["Regar una planta", "Revisar la tierra", "Llenar la regadera", "Regar la planta", "Guardar la regadera"],
+    ["Salir a caminar", "Ponerte los zapatos", "Salir de casa", "Caminar por el sendero", "Volver a casa"],
+    ["Enviar una carta", "Escribir la carta", "Ponerla en un sobre", "Poner la dirección y el sello", "Dejarla en el buzón"],
+    ["Poner la mesa", "Limpiar la mesa", "Colocar los platos", "Poner los cubiertos", "Traer la comida"],
+    ["Preparar una tostada", "Sacar una rebanada de pan", "Ponerla en la tostadora", "Esperar a que se tueste", "Ponerla en un plato"],
+    ["Preparar un pícnic", "Elegir qué llevar", "Poner la comida en la cesta", "Llevar la cesta afuera", "Extender una manta"],
+  ],
+};
+
 type Question =
   | { kind: "pictures"; sample: Symbol[]; options: Symbol[]; answer: Symbol }
   | { kind: "routine"; title: string; sample: string[]; options: string[]; answer: string };
 
-function questions(level: Level): Question[] {
+function questions(game: Exclude<Game, "MATCH">, level: Level, locale: Locale): Question[] {
+  if (game === "ROUTINE") return shuffle(routineScenes[locale]).slice(0, 3 + level).map(([title, ...steps], index) => {
+    const prefix = level === 1 ? index % 2 : (index + level) % 4;
+    return { kind: "routine", title, answer: steps[prefix], sample: steps.slice(0, prefix),
+      options: shuffle([steps[prefix], ...shuffle(steps.filter((_, pos) => pos !== prefix)).slice(0, level < 3 ? 2 : 3)]) };
+  });
   return Array.from({ length: 3 + level }, () => {
     const order = shuffle(symbols);
     const answer = order[0];
@@ -130,7 +156,7 @@ function ChoiceRound({ game, level, locale, finish, read }: PlayProps & {
   game: Exclude<Game, "MATCH">; read: (text: string) => void;
 }) {
   const t = copy[locale];
-  const [items] = useState(() => questions(level));
+  const [items] = useState(() => questions(game, level, locale));
   const [index, setIndex] = useState(0);
   const [answer, setAnswer] = useState<string | null>(null);
   const [correct, setCorrect] = useState(0);
