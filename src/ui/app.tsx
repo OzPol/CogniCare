@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { type Game, type Level, type Locale, type Round } from "@/shared/domain";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { type AccountView, type Game, type Level, type Locale, type Round } from "@/shared/domain";
+import { Account } from "./account";
 import { copy, gameCopy } from "./copy";
 import { ActivityArt, Exercise, type Score } from "./games";
+import { api } from "./http";
 import { Icon } from "./icons";
 
-type View = "home" | "activities" | "game" | "complete";
+type View = "home" | "activities" | "account" | "game" | "complete";
 type MainView = Extract<View, "home" | "activities" | "today" | "care">;
 const navigation: { view: MainView; icon: string }[] = [
   { view: "home", icon: "home" },
@@ -38,12 +40,15 @@ export function App({ preview }: { preview: boolean }) {
   const [roundNo, setRoundNo] = useState(0);
   const items: readonly Game[] = ["MATCH", "FOCUS", "ROUTINE", "PATTERN"];
   const [online, setOnline] = useState(true);
+  const [account, setAccount] = useState<AccountView | null>(null);
   const [notice, setNotice] = useState<keyof typeof copy.en | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [date, setDate] = useState<Date | null>(null);
   const [completed, setCompleted] = useState<{ round: Round } | null>(null);
   const main = useRef<HTMLElement>(null);
   const initialized = useRef(false);
+  const owner = useRef<string | null>(null);
+  const ready = account?.state === "ready" ? account : null;
 
   function navigate(destination: View) {
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
@@ -61,9 +66,24 @@ export function App({ preview }: { preview: boolean }) {
     navigate("game");
   }
 
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    const result = await api<AccountView>("/api/account", undefined, signal);
+    if (!signal?.aborted) {
+      owner.current = result.state === "ready" ? result.id : null;
+      setAccount(result);
+    }
+    return result;
+  }, []);
+
   useEffect(() => {
     const init = window.setTimeout(() => {
       setDate(new Date());
+      const query = new URLSearchParams(window.location.search);
+      if (query.get("account")) {
+        setView("account");
+        if (query.has("error")) setNotice("accountUnavailable");
+        window.history.replaceState({}, "", "/");
+      }
       try {
         if (localStorage.getItem("cognicare-language") === "es") setLocale("es");
         setLarger(localStorage.getItem("cognicare-large") === "yes");
@@ -92,6 +112,13 @@ export function App({ preview }: { preview: boolean }) {
     if (initialized.current) try { localStorage.setItem("cognicare-large", larger ? "yes" : "no"); } catch {}
   }, [larger]);
 
+  useEffect(() => {
+    if (!online) return;
+    const controller = new AbortController();
+    void Promise.resolve().then(() => refresh(controller.signal)).catch(() => undefined);
+    return () => controller.abort();
+  }, [online, refresh]);
+
   function speak(content: string) {
     if (!("speechSynthesis" in window)) { setNotice("voiceMissing"); return; }
     const synthesis = window.speechSynthesis;
@@ -111,6 +138,16 @@ export function App({ preview }: { preview: boolean }) {
     synthesis.speak(utterance);
   }
 
+  async function signOut() {
+    await api("/api/auth/sign-out", {});
+    owner.current = null;
+    setAccount(null);
+    setCompleted(null);
+    await refresh().catch(() => undefined);
+    navigate("home");
+    setNotice("signedOut");
+  }
+
   function complete(score: Score, difficulty: Level) {
     const round: Round = { ...score, difficulty, game, playedAt: new Date().toISOString() };
     setCompleted({ round });
@@ -124,7 +161,8 @@ export function App({ preview }: { preview: boolean }) {
   const speechText = view === "home" ? t.pageTitle + " " + t.welcome :
     view === "activities" ? t.activities + ". " + items.map((item) => gameCopy[locale][item].title).join(". ") :
     view === "game" ? gameCopy[locale][game].instructions :
-    t.wellDone + " " + t.giveTime;
+    view === "complete" ? t.wellDone + " " + t.giveTime :
+    t.myAccount;
 
   return (
     <>
@@ -151,6 +189,9 @@ export function App({ preview }: { preview: boolean }) {
             }}>
               <option value="en" lang="en">English</option><option value="es" lang="es">Español</option>
             </select>
+            <button className="button quiet sign-in" onClick={() => navigate("account")}>
+              {ready || account?.state === "enroll" || account?.state === "verify" ? t.myAccount : t.signIn}
+            </button>
           </div>
         </div>
       </header>
@@ -201,6 +242,8 @@ export function App({ preview }: { preview: boolean }) {
             <button className="button quiet" onClick={() => navigate("activities")}>{t.viewActivities}</button>
             <button className="button quiet" onClick={() => navigate("home")}>{t.stopHere}</button></div>
         </section>}
+        {view === "account" && <Account account={account} locale={locale} online={online} refresh={refresh} signOut={signOut} close={() => navigate("home")} />}
+
         <footer className="footer">
           <span className="footer-brand">CogniCare</span>
           {preview && <span>{t.preview}</span>}
