@@ -1,26 +1,47 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { type Locale } from "@/shared/domain";
-import { copy } from "./copy";
+import { type Game, type Level, type Locale, type Round } from "@/shared/domain";
+import { copy, gameCopy } from "./copy";
+import { ActivityArt, Exercise, type Score } from "./games";
 import { Icon } from "./icons";
 
-type View = "home";
+type View = "home" | "activities" | "game" | "complete";
 type MainView = Extract<View, "home" | "activities" | "today" | "care">;
 const navigation: { view: MainView; icon: string }[] = [
   { view: "home", icon: "home" },
+  { view: "activities", icon: "games" },
 ];
 const voices = { en: "en-US", es: "es-US" };
+
+function ActivityList({ locale, items, choose }: { locale: Locale; items: readonly Game[]; choose: (game: Game) => void }) {
+  return <div className="activity-grid">{items.map((game) => {
+    const detail = gameCopy[locale][game];
+    return <button key={game} className="activity-card" onClick={() => choose(game)}>
+      <ActivityArt game={game} />
+      <span className="activity-body">
+        <span className="domain">{detail.domain}</span>
+        <strong>{detail.title}</strong>
+        <span className="card-description">{detail.description}</span>
+        <span className="card-action" aria-hidden="true">{copy[locale].playNow}<Icon name="arrow" size={20} /></span>
+      </span>
+    </button>;
+  })}</div>;
+}
 
 export function App({ preview }: { preview: boolean }) {
   const [locale, setLocale] = useState<Locale>("en");
   const t = copy[locale];
   const [larger, setLarger] = useState(false);
   const [view, setView] = useState<View>("home");
+  const [game, setGame] = useState<Game>("MATCH");
+  const [roundNo, setRoundNo] = useState(0);
+  const items: readonly Game[] = ["MATCH"];
   const [online, setOnline] = useState(true);
   const [notice, setNotice] = useState<keyof typeof copy.en | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [date, setDate] = useState<Date | null>(null);
+  const [completed, setCompleted] = useState<{ round: Round } | null>(null);
   const main = useRef<HTMLElement>(null);
   const initialized = useRef(false);
 
@@ -31,6 +52,13 @@ export function App({ preview }: { preview: boolean }) {
     setView(destination);
     window.scrollTo(0, 0);
     requestAnimationFrame(() => main.current?.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true }));
+  }
+
+  function choose(game: Game) {
+    setGame(game);
+    setRoundNo((value) => value + 1);
+    setCompleted(null);
+    navigate("game");
   }
 
   useEffect(() => {
@@ -83,10 +111,20 @@ export function App({ preview }: { preview: boolean }) {
     synthesis.speak(utterance);
   }
 
-  const today = date && new Intl.DateTimeFormat(locale, { weekday: "long", month: "long", day: "numeric" }).format(date);
-  const activeNav = view;
+  function complete(score: Score, difficulty: Level) {
+    const round: Round = { ...score, difficulty, game, playedAt: new Date().toISOString() };
+    setCompleted({ round });
+    navigate("complete");
+  }
 
-  const speechText = t.pageTitle + " " + t.welcome;
+  const today = date && new Intl.DateTimeFormat(locale, { weekday: "long", month: "long", day: "numeric" }).format(date);
+  const activeNav = view === "game" || view === "complete" ? "activities" : view;
+  const gameName = gameCopy[locale][game].title;
+
+  const speechText = view === "home" ? t.pageTitle + " " + t.welcome :
+    view === "activities" ? t.activities + ". " + items.map((item) => gameCopy[locale][item].title).join(". ") :
+    view === "game" ? gameCopy[locale][game].instructions :
+    t.wellDone + " " + t.giveTime;
 
   return (
     <>
@@ -129,6 +167,7 @@ export function App({ preview }: { preview: boolean }) {
               <h1 id="hero-title" tabIndex={-1}>{t.pageTitle}</h1>
               <p>{t.welcome}</p>
               <div className="hero-actions">
+                <button className="button primary" onClick={() => navigate("activities")}>{t.play}<Icon name="arrow" /></button>
                 <button className="button voice" onClick={() => speak(speechText)}><Icon name="audio" />{speaking ? t.stop : t.read}</button>
               </div>
             </div>
@@ -139,7 +178,29 @@ export function App({ preview }: { preview: boolean }) {
               </picture>
             </div>
           </section>
+          <section className="home-activities" aria-labelledby="home-activities">
+            <div className="section-heading">
+              <h2 id="home-activities">{t.activities}</h2>
+            </div>
+            <ActivityList locale={locale} items={items} choose={choose} />
+          </section>
         </>}
+        {view === "activities" && <section className="workbench activities-view">
+          <div className="screen-top"><div><h1 tabIndex={-1}>{t.activities}</h1><p className="view-intro">{t.welcome}</p></div>
+            <button className="button voice" onClick={() => speak(speechText)}><Icon name="audio" />{speaking ? t.stop : t.read}</button></div>
+          <ActivityList locale={locale} items={items} choose={choose} />
+        </section>}
+        {view === "game" && <Exercise key={roundNo} game={game} locale={locale} read={speak} finish={complete} back={() => navigate("activities")}
+          startingLevel={1} />}
+        {view === "complete" && completed && <section className="workbench completion">
+          <ActivityArt game={game} />
+          <h1 tabIndex={-1}>{t.wellDone}</h1>
+          <p className="view-intro">{t.giveTime}</p>
+          <p><strong>{gameName}</strong> · {t.roundScore} {completed.round.correct} / {completed.round.attempts}</p>
+          <div className="actions"><button className="button primary" onClick={() => choose(game)}>{t.again}</button>
+            <button className="button quiet" onClick={() => navigate("activities")}>{t.viewActivities}</button>
+            <button className="button quiet" onClick={() => navigate("home")}>{t.stopHere}</button></div>
+        </section>}
         <footer className="footer">
           <span className="footer-brand">CogniCare</span>
           {preview && <span>{t.preview}</span>}
