@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.env*
+!.env.example
+src/generated/
+public/sw.js
+next-env.d.ts
+*.tsbuildinfo
+coverage/
